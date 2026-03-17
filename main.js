@@ -1,110 +1,78 @@
 const axios = require('axios');
-const EventSource = require('eventsource');
 const express = require('express');
-const path = require('path');
 const app = express();
 
-const API_BASE_URL = 'https://testroichueserverpriv.roicmedya.com';
-const API_KEY = process.env.API_KEY || '595aac92490bbc94911acx00000000';
+const API_URL = 'https://venro.ru/api/orders';
+const API_KEY = process.env.API_KEY || 'c958ebc5108a2c9328a1b2fbbb21c385'; 
 const PORT = process.env.PORT || 3000;
 
-// Statik dosyalar ve JSON desteği
 app.use(express.json());
 
-class SocialMediaAPI {
-  constructor(apiKey, baseUrl = API_BASE_URL) {
-    this.apiKey = apiKey;
-    this.baseUrl = baseUrl;
-  }
+// Venro API Sipariş Fonksiyonu
+async function placeOrder(typeId, url, count) {
+    const params = new URLSearchParams();
+    params.append('anahtar', API_KEY); // Görüntüdeki parametre adı
+    params.append('aksiyon', 'eklemek'); // Görüntüdeki parametre adı
+    params.append('tip', typeId);       // Hizmet Kimliği
+    params.append('URL', url);          // Profil/Post Linki
+    params.append('saymak', count);     // Miktar
 
-  async placeOrder(url, amount, platform, isStream = false) {
     try {
-      const payload = { apiKey: this.apiKey, postUrl: url, amount: amount, platform: platform, stream: isStream };
-      const response = await axios.post(`${this.baseUrl}/api/order`, payload, {
-        headers: { 'Content-Type': 'application/json' }
-      });
-      return response.data;
+        const response = await axios.post(API_URL, params);
+        return response.data;
     } catch (error) {
-      const msg = error.response ? error.response.data.error : error.message;
-      throw new Error(msg);
+        return { error: error.message };
     }
-  }
-
-  async connectToStream(orderId) {
-    const streamUrl = `${API_BASE_URL}/api/stream/${orderId}`;
-    const eventSource = new EventSource(streamUrl);
-    console.log(`📡 Stream bağlandı: ${orderId}`);
-    eventSource.onmessage = (e) => {
-      const data = JSON.parse(e.data);
-      if (data.type === 'completed' || data.type === 'error') eventSource.close();
-    };
-  }
 }
 
-const api = new SocialMediaAPI(API_KEY);
-
-// --- ANA SAYFA (ASLAN TEMALI ARAYÜZ) ---
+// Arayüz (Lion Panel)
 app.get('/', (req, res) => {
-  res.send(`
+    res.send(`
     <!DOCTYPE html>
     <html lang="tr">
     <head>
         <meta charset="UTF-8">
-        <title>Lion Panel - Sosyal Medya</title>
         <style>
-            body { background: #0f0f0f; color: #eec131; font-family: 'Segoe UI', sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-            .card { background: #1a1a1a; padding: 30px; border-radius: 15px; border: 2px solid #eec131; box-shadow: 0 0 20px rgba(238, 193, 49, 0.2); width: 350px; text-align: center; }
-            h1 { font-size: 24px; margin-bottom: 20px; }
-            input, select, button { width: 100%; padding: 12px; margin: 10px 0; border-radius: 8px; border: 1px solid #444; background: #222; color: white; box-sizing: border-box; }
-            button { background: #eec131; color: #000; font-weight: bold; border: none; cursor: pointer; transition: 0.3s; }
-            button:hover { background: #d4ac2b; transform: scale(1.02); }
-            .lion-icon { font-size: 50px; margin-bottom: 10px; }
+            body { background: #0b0b0b; color: #f1c40f; font-family: 'Arial', sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+            .panel { background: #1a1a1a; padding: 40px; border-radius: 20px; border: 2px solid #f1c40f; width: 350px; text-align: center; box-shadow: 0 0 30px rgba(241, 196, 15, 0.2); }
+            input, select, button { width: 100%; padding: 12px; margin: 10px 0; border-radius: 8px; border: 1px solid #333; background: #252525; color: white; }
+            button { background: #f1c40f; color: black; font-weight: bold; cursor: pointer; border: none; font-size: 16px; }
+            button:hover { background: #d4ac0d; }
+            h1 { margin-bottom: 20px; letter-spacing: 2px; }
         </style>
     </head>
     <body>
-        <div class="card">
-            <div class="lion-icon">🦁</div>
-            <h1>LION PANEL</h1>
-            <input type="text" id="url" placeholder="Link (URL) Yapıştırın">
-            <select id="platform">
-                <option value="instagram_views">Instagram İzlenme</option>
-                <option value="instagram_followers">Instagram Takipçi</option>
-                <option value="tiktok_views">TikTok İzlenme</option>
-            </select>
+        <div class="panel">
+            <div style="font-size: 60px;">🦁</div>
+            <h1>LION VENRO</h1>
+            <input type="text" id="url" placeholder="Instagram/TikTok URL">
+            <input type="number" id="type" placeholder="Hizmet ID (Örn: 1)">
             <input type="number" id="amount" placeholder="Miktar">
-            <button onclick="order()">Siparişi Başlat</button>
-            <p id="status"></p>
+            <button onclick="siparisVer()">SİPARİŞİ BAŞLAT</button>
+            <p id="sonuc"></p>
         </div>
         <script>
-            async function order() {
-                const status = document.getElementById('status');
-                status.innerText = "İşlem yapılıyor...";
+            async function siparisVer() {
+                const sonuc = document.getElementById('sonuc');
+                sonuc.innerText = "Gönderiliyor...";
                 const url = document.getElementById('url').value;
-                const platform = document.getElementById('platform').value;
+                const type = document.getElementById('type').value;
                 const amount = document.getElementById('amount').value;
                 
-                try {
-                    const res = await fetch(\`/order?url=\${url}&platform=\${platform}&amount=\${amount}\`);
-                    const data = await res.json();
-                    status.innerText = data.status || data.error;
-                } catch (e) { status.innerText = "Hata oluştu!"; }
+                const response = await fetch(\`/order?type=\${type}&url=\${url}&amount=\${amount}\`);
+                const data = await response.json();
+                sonuc.innerText = JSON.stringify(data);
             }
         </script>
     </body>
     </html>
-  `);
+    `);
 });
 
 app.get('/order', async (req, res) => {
-  const { platform, url, amount } = req.query;
-  try {
-    const order = await api.placeOrder(url, parseInt(amount), platform, false);
-    res.json({ status: "Başarılı!", details: order });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+    const { type, url, amount } = req.query;
+    const result = await placeOrder(type, url, amount);
+    res.json(result);
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`✅ Sunucu ${PORT} portunda hazır!`);
-});
+app.listen(PORT, '0.0.0.0', () => console.log(\`Sistem \${PORT} üzerinde hazır!\`));
